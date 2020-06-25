@@ -37,3 +37,5 @@ add_library(CppNumericalSolvers INTERFACE)
 target_include_directories(CppNumericalSolvers INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+
+target_link_libraries(CppNumericalSolvers INTERFACE Eigen3:Eigen)
