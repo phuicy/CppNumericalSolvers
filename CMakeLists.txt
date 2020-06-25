@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 project(CppNumericalSolvers)
 
-include(CppNumericalSolvers.config)
+SET(Matlab_DIR  "/path/to/matlab")
 
 set( CMAKE_BUILD_TYPE Release)
 set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin )
@@ -32,8 +32,8 @@ find_package(Eigen3 REQUIRED)
 include_directories(SYSTEM ${EIGEN3_INCLUDE_DIR})
 
 
-add_subdirectory(src/examples)
-add_subdirectory(src/test)
 
-
-add_custom_target(lint COMMAND ${CMAKE_COMMAND} -P ${PROJECT_SOURCE_DIR}/cmake/lint.cmake)
+add_library(CppNumericalSolvers INTERFACE)
+target_include_directories(CppNumericalSolvers INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
