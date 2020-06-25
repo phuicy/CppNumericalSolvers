@@ -2,54 +2,55 @@
 #ifndef CONJUGATEDGRADIENTDESCENTSOLVER_H_
 #define CONJUGATEDGRADIENTDESCENTSOLVER_H_
 
-#include <Eigen/Dense>
+#include <Eigen/Core>
 #include "isolver.h"
 #include "../linesearch/armijo.h"
 
 namespace cppoptlib {
 
-template<typename T>
-class ConjugatedGradientDescentSolver : public ISolver<T, 1> {
+template<typename ProblemType>
+class ConjugatedGradientDescentSolver : public ISolver<ProblemType, 1> {
 
  public:
+  using Superclass = ISolver<ProblemType, 1>;
+  using typename Superclass::Scalar;
+  using typename Superclass::TVector;
+
   /**
    * @brief minimize
    * @details [long description]
    *
    * @param objFunc [description]
    */
-  void minimize(Problem<T> &objFunc, Vector<T> & x0) {
+  void minimize(ProblemType &objFunc, TVector &x0) {
+    TVector grad(x0.rows());
+    TVector grad_old(x0.rows());
+    TVector Si(x0.rows());
+    TVector Si_old(x0.rows());
 
-    size_t iter = 0;
-    T gradNorm = 0;
-
-    Vector<T> grad(x0.rows());
-    Vector<T> grad_old(x0.rows());
-    Vector<T> Si(x0.rows());
-    Vector<T> Si_old(x0.rows());
-
+    this->m_current.reset();
     do {
       objFunc.gradient(x0, grad);
 
-      if (iter == 0) {
+      if (this->m_current.iterations == 0) {
         Si = -grad;
       } else {
         const double beta = grad.dot(grad) / (grad_old.dot(grad_old));
         Si = -grad + beta * Si_old;
       }
 
-      const double rate = Armijo<T, decltype(objFunc), 1>::linesearch(x0, Si, objFunc) ;
+      const double rate = Armijo<ProblemType, 1>::linesearch(x0, Si, objFunc) ;
 
       x0 = x0 + rate * Si;
 
       grad_old = grad;
       Si_old = Si;
 
-      gradNorm = grad.template lpNorm<Eigen::Infinity>();
+      this->m_current.gradNorm = grad.template lpNorm<Eigen::Infinity>();
       // std::cout << "iter: "<<iter<< " f = " <<  objFunc.value(x0) << " ||g||_inf "<<gradNorm   << std::endl;
-      iter++;
-
-    } while ((gradNorm > this->settings_.gradTol) && (iter < this->settings_.maxIter));
+      ++this->m_current.iterations;
+      this->m_status = checkConvergence(this->m_stop, this->m_current);
+    } while (objFunc.callback(this->m_current, x0) && (this->m_status == Status::Continue) );
 
   }
 

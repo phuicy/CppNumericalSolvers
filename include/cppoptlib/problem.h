@@ -1,61 +1,39 @@
 #ifndef PROBLEM_H
 #define PROBLEM_H
 
-#include <Eigen/Dense>
-
-#if defined(MATLAB) || defined(NDEBUG)
-#define EXPECT_NEAR(x, y, z)
-#else
-#include "../gtest/gtest.h"
-#endif /* RELEASE MODE */
+#include <array>
+#include <vector>
+#include <Eigen/Core>
 
 #include "meta.h"
 
 namespace cppoptlib {
-template<typename T>
+
+template<typename Scalar_, int Dim_ = Eigen::Dynamic>
 class Problem {
- protected:
-
-  bool hasLowerBound_ = false;
-  bool hasUpperBound_ = false;
-
-  Vector<T> lowerBound_;
-  Vector<T> upperBound_;
+ public:
+  static const int Dim = Dim_;
+  typedef Scalar_ Scalar;
+  using TVector   = Eigen::Matrix<Scalar, Dim, 1>;
+  using THessian  = Eigen::Matrix<Scalar, Dim, Dim>;
+  using TCriteria = Criteria<Scalar>;
+  using TIndex = typename TVector::Index;
+  using MatrixType = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>;
 
  public:
-
   Problem() {}
+  virtual ~Problem()= default;
 
-  void setBoxConstraint(Vector<T>  lb, Vector<T>  ub) {
-    setLowerBound(lb);
-    setUpperBound(ub);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+  virtual bool callback(const Criteria<Scalar> &state, const TVector &x) {
+    return true;
   }
 
-  void setLowerBound(Vector<T>  lb) {
-    lowerBound_    = lb;
-    hasLowerBound_ = true;
+  virtual bool detailed_callback(const Criteria<Scalar> &state, SimplexOp op, int index, const MatrixType &x, std::vector<Scalar> f) {
+    return true;
   }
-
-  void setUpperBound(Vector<T>  ub) {
-    upperBound_ = ub;
-    hasUpperBound_ = true;
-  }
-
-  bool hasLowerBound() {
-    return hasLowerBound_;
-  }
-
-  bool hasUpperBound() {
-    return hasUpperBound_;
-  }
-
-  Vector<T> lowerBound() {
-    return lowerBound_;
-  }
-
-  Vector<T> upperBound() {
-    return upperBound_;
-  }
+#pragma GCC diagnostic pop
 
   /**
    * @brief returns objective value in x
@@ -64,7 +42,10 @@ class Problem {
    * @param x [description]
    * @return [description]
    */
-  virtual T value(const  Vector<T> &x) = 0;
+  virtual Scalar value(const  TVector &x) = 0;
+
+  //virtual Scalar value(const  TVector &x, const  TVector &y) = 0;
+
   /**
    * @brief overload value for nice syntax
    * @details [long description]
@@ -72,7 +53,7 @@ class Problem {
    * @param x [description]
    * @return [description]
    */
-  T operator()(const  Vector<T> &x) {
+  Scalar operator()(const  TVector &x) {
     return value(x);
   }
   /**
@@ -81,7 +62,7 @@ class Problem {
    *
    * @param grad [description]
    */
-  virtual void gradient(const  Vector<T> &x,  Vector<T> &grad) {
+  virtual void gradient(const  TVector &x,  TVector &grad) {
     finiteGradient(x, grad);
   }
 
@@ -89,96 +70,99 @@ class Problem {
    * @brief This computes the hessian
    * @details should be overwritten by symbolic hessian, if solver relies on hessian
    */
-  virtual void hessian(const Vector<T> & x, Matrix<T> & hessian) {
+  virtual void hessian(const TVector &x, THessian &hessian) {
     finiteHessian(x, hessian);
-
   }
 
-  virtual bool checkGradient(const Vector<T> & x, int accuracy = 3) {
+  virtual bool checkGradient(const TVector &x, int accuracy = 3) {
     // TODO: check if derived class exists:
     // int(typeid(&Rosenbrock<double>::gradient) == typeid(&Problem<double>::gradient)) == 1 --> overwritten
-    const int D = x.rows();
-    Vector<T> actual_grad(D);
-    Vector<T> expected_grad(D);
+    const TIndex D = x.rows();
+    TVector actual_grad(D);
+    TVector expected_grad(D);
     gradient(x, actual_grad);
     finiteGradient(x, expected_grad, accuracy);
-
-    bool correct = true;
-
-    for (int d = 0; d < D; ++d) {
-      T scale = std::max((std::max(fabs(actual_grad[d]), fabs(expected_grad[d]))), 1.);
-      EXPECT_NEAR(actual_grad[d], expected_grad[d], 1e-2 * scale);
+    for (TIndex d = 0; d < D; ++d) {
+      Scalar scale = std::max(static_cast<Scalar>(std::max(fabs(actual_grad[d]), fabs(expected_grad[d]))), Scalar(1.));
       if(fabs(actual_grad[d]-expected_grad[d])>1e-2 * scale)
-        correct = false;
+        return false;
     }
-    return correct;
+    return true;
 
   }
 
-  virtual bool checkHessian(const Vector<T> & x, int accuracy = 3) {
+  virtual bool checkHessian(const TVector &x, int accuracy = 3) {
     // TODO: check if derived class exists:
     // int(typeid(&Rosenbrock<double>::gradient) == typeid(&Problem<double>::gradient)) == 1 --> overwritten
-    const int D = x.rows();
-    bool correct = true;
+    const TIndex D = x.rows();
 
-    Matrix<T> actual_hessian = Matrix<T>::Zero(D, D);
-    Matrix<T> expected_hessian = Matrix<T>::Zero(D, D);
+    THessian actual_hessian = THessian::Zero(D, D);
+    THessian expected_hessian = THessian::Zero(D, D);
     hessian(x, actual_hessian);
     finiteHessian(x, expected_hessian, accuracy);
-    for (int d = 0; d < D; ++d) {
-      for (int e = 0; e < D; ++e) {
-        T scale = std::max(static_cast<T>(std::max(fabs(actual_hessian(d, e)), fabs(expected_hessian(d, e)))), (T)1.);
-        EXPECT_NEAR(actual_hessian(d, e), expected_hessian(d, e), 1e-1 * scale);
+    for (TIndex d = 0; d < D; ++d) {
+      for (TIndex e = 0; e < D; ++e) {
+        Scalar scale = std::max(static_cast<Scalar>(std::max(fabs(actual_hessian(d, e)), fabs(expected_hessian(d, e)))), Scalar(1.));
         if(fabs(actual_hessian(d, e)- expected_hessian(d, e))>1e-1 * scale)
-        correct = false;
+          return false;
       }
     }
-    return correct;
-
+    return true;
   }
 
-  virtual void finiteGradient(const  Vector<T> &x, Vector<T> &grad, int accuracy = 0) final {
+  void finiteGradient(const  TVector &x, TVector &grad, int accuracy = 0) {
     // accuracy can be 0, 1, 2, 3
-    const T eps = 2.2204e-6;
-    const size_t D = x.rows();
-    const std::vector< std::vector <T>> coeff =
-    { {1, -1}, {1, -8, 8, -1}, {-1, 9, -45, 45, -9, 1}, {3, -32, 168, -672, 672, -168, 32, -3} };
-    const std::vector< std::vector <T>> coeff2 =
-    { {1, -1}, {-2, -1, 1, 2}, {-3, -2, -1, 1, 2, 3}, {-4, -3, -2, -1, 1, 2, 3, 4} };
-    const std::vector <T> dd = {2, 12, 60, 840};
+    const Scalar eps = 2.2204e-6;
+    static const std::array<std::vector<Scalar>, 4> coeff =
+    { { {1, -1}, {1, -8, 8, -1}, {-1, 9, -45, 45, -9, 1}, {3, -32, 168, -672, 672, -168, 32, -3} } };
+    static const std::array<std::vector<Scalar>, 4> coeff2 =
+    { { {1, -1}, {-2, -1, 1, 2}, {-3, -2, -1, 1, 2, 3}, {-4, -3, -2, -1, 1, 2, 3, 4} } };
+    static const std::array<Scalar, 4> dd = {2, 12, 60, 840};
 
-    Vector<T> finiteDiff(D);
-    for (size_t d = 0; d < D; d++) {
-      finiteDiff[d] = 0;
-      for (int s = 0; s < 2*(accuracy+1); ++s)
+    grad.resize(x.rows());
+    TVector& xx = const_cast<TVector&>(x);
+
+    const int innerSteps = 2*(accuracy+1);
+    const Scalar ddVal = dd[accuracy]*eps;
+
+    for (TIndex d = 0; d < x.rows(); d++) {
+      grad[d] = 0;
+      for (int s = 0; s < innerSteps; ++s)
       {
-        Vector<T> xx = x.eval();
+        Scalar tmp = xx[d];
         xx[d] += coeff2[accuracy][s]*eps;
-        finiteDiff[d] += coeff[accuracy][s]*value(xx);
+        grad[d] += coeff[accuracy][s]*value(xx);
+        xx[d] = tmp;
       }
-      finiteDiff[d] /= (dd[accuracy]* eps);
+      grad[d] /= ddVal;
     }
-    grad = finiteDiff;
   }
 
-  virtual void finiteHessian(const Vector<T> & x, Matrix<T> & hessian, int accuracy = 0) final {
-    const T eps = std::numeric_limits<T>::epsilon()*10e7;
-    const size_t DIM = x.rows();
+  void finiteHessian(const TVector &x, THessian &hessian, int accuracy = 0) {
+    const Scalar eps = std::numeric_limits<Scalar>::epsilon()*10e7;
+
+    hessian.resize(x.rows(), x.rows());
+    TVector& xx = const_cast<TVector&>(x);
 
     if(accuracy == 0) {
-      for (size_t i = 0; i < DIM; i++) {
-        for (size_t j = 0; j < DIM; j++) {
-          Vector<T> xx = x;
-          T f4 = value(xx);
+      for (TIndex i = 0; i < x.rows(); i++) {
+        for (TIndex j = 0; j < x.rows(); j++) {
+          Scalar tmpi = xx[i];
+          Scalar tmpj = xx[j];
+
+          Scalar f4 = value(xx);
           xx[i] += eps;
           xx[j] += eps;
-          T f1 = value(xx);
+          Scalar f1 = value(xx);
           xx[j] -= eps;
-          T f2 = value(xx);
+          Scalar f2 = value(xx);
           xx[j] += eps;
           xx[i] -= eps;
-          T f3 = value(xx);
+          Scalar f3 = value(xx);
           hessian(i, j) = (f1 - f2 - f3 + f4) / (eps * eps);
+
+          xx[i] = tmpi;
+          xx[j] = tmpj;
         }
       }
     } else {
@@ -191,36 +175,39 @@ class Problem {
           74(f_{-1,-1}+f_{1,1}-f_{1,-1}-f_{-1,1})
         \end{matrix}\right] }
       */
-      Vector<T> xx;
-      for (size_t i = 0; i < DIM; i++) {
-        for (size_t j = 0; j < DIM; j++) {
+      for (TIndex i = 0; i < x.rows(); i++) {
+        for (TIndex j = 0; j < x.rows(); j++) {
+          Scalar tmpi = xx[i];
+          Scalar tmpj = xx[j];
 
-          T term_1 = 0;
-          xx = x.eval(); xx[i] += 1*eps;  xx[j] += -2*eps;  term_1 += value(xx);
-          xx = x.eval(); xx[i] += 2*eps;  xx[j] += -1*eps;  term_1 += value(xx);
-          xx = x.eval(); xx[i] += -2*eps; xx[j] += 1*eps;   term_1 += value(xx);
-          xx = x.eval(); xx[i] += -1*eps; xx[j] += 2*eps;   term_1 += value(xx);
+          Scalar term_1 = 0;
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 1*eps;  xx[j] += -2*eps;  term_1 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 2*eps;  xx[j] += -1*eps;  term_1 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -2*eps; xx[j] += 1*eps;   term_1 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -1*eps; xx[j] += 2*eps;   term_1 += value(xx);
 
-          T term_2 = 0;
-          xx = x.eval(); xx[i] += -1*eps; xx[j] += -2*eps;  term_2 += value(xx);
-          xx = x.eval(); xx[i] += -2*eps; xx[j] += -1*eps;  term_2 += value(xx);
-          xx = x.eval(); xx[i] += 1*eps;  xx[j] += 2*eps;   term_2 += value(xx);
-          xx = x.eval(); xx[i] += 2*eps;  xx[j] += 1*eps;   term_2 += value(xx);
+          Scalar term_2 = 0;
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -1*eps; xx[j] += -2*eps;  term_2 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -2*eps; xx[j] += -1*eps;  term_2 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 1*eps;  xx[j] += 2*eps;   term_2 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 2*eps;  xx[j] += 1*eps;   term_2 += value(xx);
 
-          T term_3 = 0;
-          xx = x.eval(); xx[i] += 2*eps;  xx[j] += -2*eps;  term_3 += value(xx);
-          xx = x.eval(); xx[i] += -2*eps; xx[j] += 2*eps;   term_3 += value(xx);
-          xx = x.eval(); xx[i] += -2*eps; xx[j] += -2*eps;  term_3 -= value(xx);
-          xx = x.eval(); xx[i] += 2*eps;  xx[j] += 2*eps;   term_3 -= value(xx);
+          Scalar term_3 = 0;
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 2*eps;  xx[j] += -2*eps;  term_3 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -2*eps; xx[j] += 2*eps;   term_3 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -2*eps; xx[j] += -2*eps;  term_3 -= value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 2*eps;  xx[j] += 2*eps;   term_3 -= value(xx);
 
-          T term_4 = 0;
-          xx = x.eval(); xx[i] += -1*eps; xx[j] += -1*eps;  term_4 += value(xx);
-          xx = x.eval(); xx[i] += 1*eps;  xx[j] += 1*eps;   term_4 += value(xx);
-          xx = x.eval(); xx[i] += 1*eps;  xx[j] += -1*eps;  term_4 -= value(xx);
-          xx = x.eval(); xx[i] += -1*eps; xx[j] += 1*eps;   term_4 -= value(xx);
+          Scalar term_4 = 0;
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -1*eps; xx[j] += -1*eps;  term_4 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 1*eps;  xx[j] += 1*eps;   term_4 += value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += 1*eps;  xx[j] += -1*eps;  term_4 -= value(xx);
+          xx[i] = tmpi; xx[j] = tmpj; xx[i] += -1*eps; xx[j] += 1*eps;   term_4 -= value(xx);
+
+          xx[i] = tmpi;
+          xx[j] = tmpj;
 
           hessian(i, j) = (-63 * term_1+63 * term_2+44 * term_3+74 * term_4)/(600.0 * eps * eps);
-
         }
       }
     }
